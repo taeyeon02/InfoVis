@@ -1,0 +1,218 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Correlation Between Win Rate and Common Attributes</title>
+  <script src="https://d3js.org/d3.v7.min.js"></script>
+  <style>
+    body { font-family: Arial, sans-serif; }
+    .tooltip {
+      position: absolute;
+      background: white;
+      border: 1px solid #ccc;
+      padding: 5px;
+      pointer-events: none;
+      font-size: 12px;
+    }
+    .top-right-buttons {
+      position: absolute;
+      top: 10px;
+      right: 10px;
+    }
+    .top-right-buttons a {
+      text-decoration: none;
+      padding: 8px 12px;
+      margin-left: 5px;
+      background-color: #007BFF;
+      color: white;
+      border-radius: 4px;
+      font-size: 14px;
+    }
+    .top-right-buttons a:hover {
+      background-color: #0056b3;
+    }
+    .controls label {
+      margin-right: 10px;
+      font-size: 14px;
+    }
+    .chart-container {
+      display: flex;
+      justify-content: center;
+      margin-top: 20px;
+    }
+    svg text {
+      font-size: 12px;
+    }
+  </style>
+</head>
+<body>
+  <h2>Correlation Between Win Rate and Common Attributes</h2>
+  <div class="top-right-buttons">
+    <a href="index1.html">First</a>
+    <a href="index2.html">Second</a>
+    <a href="index3.html">Third</a>
+  </div>
+
+  <div class="controls">
+    <label>Skill Tier:
+      <select id="tierSelect">
+        <option>All</option>
+        <option>Bronze</option>
+        <option>Silver</option>
+        <option>Gold</option>
+        <option>Platinum</option>
+        <option>Diamond</option>
+        <option>Master</option>
+        <option>Grandmaster</option>
+      </select>
+    </label>
+    <label>Role:
+      <select id="roleSelect">
+        <option>All</option>
+        <option>Damage</option>
+        <option>Support</option>
+        <option>Tank</option>
+      </select>
+    </label>
+    <label for="sortSelect">Sorting:
+      <select id="sortSelect">
+        <option value="normal">Normal</option>
+        <option value="descending">Descending</option>
+        <option value="ascending">Ascending</option>
+      </select>
+    </label>
+  </div>
+
+  <div class="chart-container">
+    <svg id="correlationChart" width="1000" height="600"></svg>
+  </div>
+
+  <script>
+    const roleAttributes = {
+      "All": ["KDA Ratio", "Pick Rate, %", "Win Rate, %", "Eliminations / 10min", "Objective Kills / 10min", "Objective Time / 10min", "Damage / 10min", "Deaths / 10min"],
+      "Damage": ["KDA Ratio", "Pick Rate, %", "Win Rate, %", "Eliminations / 10min", "Objective Kills / 10min", "Objective Time / 10min", "Damage / 10min", "Deaths / 10min", "Final Blows / 10min", "Solo Kills / 10min"],
+      "Support": ["KDA Ratio", "Pick Rate, %", "Win Rate, %", "Eliminations / 10min", "Objective Kills / 10min", "Objective Time / 10min", "Damage / 10min", "Healing / 10min", "Deaths / 10min"],
+      "Tank": ["KDA Ratio", "Pick Rate, %", "Win Rate, %", "Eliminations / 10min", "Objective Kills / 10min", "Objective Time / 10min", "Damage / 10min", "Deaths / 10min", "Objective Contest Time / 10min"]
+    };
+
+    let rawData = [];
+    d3.csv("ow2_season_01_FINAL_heroes_stats__2023-05-06.csv").then(data => {
+      rawData = data;
+      updateChart();
+    });
+
+    d3.selectAll("#tierSelect, #roleSelect, #sortSelect").on("change", updateChart);
+
+    function updateChart() {
+      const tier = d3.select("#tierSelect").property("value");
+      const role = d3.select("#roleSelect").property("value");
+      const sortOrder = d3.select("#sortSelect").property("value");
+      const attributes = roleAttributes[role];
+
+      const filtered = rawData.filter(d =>
+        (tier === "All" || d["Skill Tier"] === tier) &&
+        (role === "All" || d["Role"] === role)
+      );
+
+      const correlations = attributes
+        .filter(attr => attr !== "Win Rate, %")
+        .map(attr => {
+          const x = filtered.map(d => parseFloat(d[attr])).filter(v => !isNaN(v));
+          const y = filtered.map(d => parseFloat(d["Win Rate, %"])).filter(v => !isNaN(v));
+          if (x.length !== y.length || x.length === 0) return null;
+          const meanX = d3.mean(x);
+          const meanY = d3.mean(y);
+          const num = d3.sum(x.map((v, i) => (v - meanX) * (y[i] - meanY)));
+          const den = Math.sqrt(d3.sum(x.map(v => (v - meanX) ** 2)) * d3.sum(y.map(v => (v - meanY) ** 2)));
+          const corr = num / den;
+          return { attribute: attr, absCorr: Math.abs(corr) };
+        })
+        .filter(d => d !== null);
+
+      if (sortOrder === "ascending") correlations.sort((a, b) => a.absCorr - b.absCorr);
+      else if (sortOrder === "descending") correlations.sort((a, b) => b.absCorr - a.absCorr);
+
+      const totalCorr = d3.sum(correlations, d => d.absCorr);
+      drawPieChart(correlations.map(d => ({
+        ...d,
+        percentage: d.absCorr / totalCorr
+      })));
+    }
+
+    function drawPieChart(data) {
+      const svg = d3.select("#correlationChart");
+      svg.selectAll("*").remove();
+
+      const width = +svg.attr("width");
+      const height = +svg.attr("height");
+      const radius = Math.min(width, height) / 2 - 40;
+
+      const g = svg.append("g")
+        .attr("transform", "translate(" + width / 2 + "," + height / 2 + ")");
+
+      const pie = d3.pie()
+        .value(d => d.absCorr)
+        .sort(null);
+
+      const arc = d3.arc()
+        .innerRadius(0)
+        .outerRadius(radius);
+
+      const color = d3.scaleOrdinal()
+        .domain(data.map(d => d.attribute))
+        .range(d3.schemeCategory10);
+
+      const tooltip = d3.select("body").append("div")
+        .attr("class", "tooltip")
+        .style("opacity", 0);
+
+      const arcs = g.selectAll("arc")
+        .data(pie(data))
+        .enter().append("g");
+
+      arcs.append("path")
+        .attr("d", arc)
+        .attr("fill", d => color(d.data.attribute))
+        .on("mouseover", (event, d) => {
+          tooltip.transition().duration(200).style("opacity", 0.9);
+          tooltip.html(d.data.attribute + '<br>Correlation: ' + d.data.absCorr.toFixed(3))
+            .style("left", (event.pageX + 10) + "px")
+            .style("top", (event.pageY - 28) + "px");
+        })
+        .on("mouseout", () => tooltip.transition().duration(500).style("opacity", 0));
+
+      arcs.filter(d => d.data.percentage >= 0.10)
+        .append("text")
+        .attr("transform", d => "translate(" + arc.centroid(d) + ")")
+        .attr("text-anchor", "middle")
+        .style("font-size", "10px")
+        .style("fill", "white")
+        .selectAll("tspan")
+        .data(d => [d.data.attribute, (d.data.percentage * 100).toFixed(1) + '%'])
+        .enter()
+        .append("tspan")
+        .attr("x", 0)
+        .attr("dy", (d, i) => i === 0 ? 0 : "1.1em")
+        .text(d => d);
+
+      const legend = svg.append("g")
+        .attr("transform", "translate(0, 30)")
+        .selectAll("g")
+        .data(data)
+        .enter().append("g")
+        .attr("transform", (d, i) => "translate(0," + i * 20 + ")");
+
+      legend.append("rect")
+        .attr("width", 14)
+        .attr("height", 14)
+        .attr("fill", d => color(d.attribute));
+
+      legend.append("text")
+        .attr("x", 20)
+        .attr("y", 10)
+        .attr("dy", "0.32em")
+        .text(d => d.attribute + ' : ' + (d.percentage * 100).toFixed(1) + '%');
+    }
+  </script>
+</body>
+</html>

@@ -1,0 +1,261 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Identify Meta Heroes</title>
+  <script src="https://d3js.org/d3.v7.min.js"></script>
+  <style>
+    body { font-family: Arial, sans-serif; }
+    .tooltip {
+      position: absolute;
+      background: white;
+      border: 1px solid #ccc;
+      padding: 5px;
+      pointer-events: none;
+      font-size: 12px;
+    }
+    .top-right-buttons {
+      position: absolute;
+      top: 10px;
+      right: 10px;
+    }
+    .top-right-buttons a {
+      text-decoration: none;
+      padding: 8px 12px;
+      margin-left: 5px;
+      background-color: #007BFF;
+      color: white;
+      border-radius: 4px;
+      font-size: 14px;
+    }
+    .top-right-buttons a:hover {
+      background-color: #0056b3;
+    }
+    .controls label {
+      margin-right: 10px;
+      font-size: 14px;
+    }
+    .chart-container {
+      display: flex;
+      gap: 20px;
+    }
+    svg text {
+      font-size: 12px;
+    }
+  </style>
+</head>
+<body>
+  <h2>Identify Meta Heroes</h2>
+  <div class="top-right-buttons">
+    <a href="index1.html">First</a>
+    <a href="index2.html">Second</a>
+    <a href="index3.html">Third</a>
+  </div>
+
+  <div class="controls">
+    <label>Skill Tier:
+      <select id="tierSelect">
+        <option>All</option>
+        <option>Bronze</option>
+        <option>Silver</option>
+        <option>Gold</option>
+        <option>Platinum</option>
+        <option>Diamond</option>
+        <option>Master</option>
+        <option>Grandmaster</option>
+      </select>
+    </label>
+    <label>Role:
+      <select id="roleSelect">
+        <option>All</option>
+        <option>Damage</option>
+        <option>Support</option>
+        <option>Tank</option>
+      </select>
+    </label>
+    <label for="sortSelect">Sorting:
+      <select id="sortSelect">
+        <option value="normal">Normal</option>
+        <option value="descending">Descending</option>
+        <option value="ascending">Ascending</option>
+      </select>
+    </label>
+  </div>
+
+  <div class="chart-container">
+    <svg id="scatterPlot" width="700" height="600"></svg>
+    <svg id="barChart" width="700" height="600"></svg>
+  </div>
+
+  <script>
+    const svg = d3.select("#scatterPlot"),
+      margin = {top: 50, right: 60, bottom: 60, left: 80},
+      width = +svg.attr("width") - margin.left - margin.right,
+      height = +svg.attr("height") - margin.top - margin.bottom;
+
+    const chart = svg.append("g")
+      .attr("transform", `translate(${margin.left},${margin.top})`);
+
+    const tooltip = d3.select("body").append("div")
+      .attr("class", "tooltip")
+      .style("opacity", 0);
+
+    function renderAxes(x, y) {
+      chart.append("g")
+        .attr("transform", `translate(0,${height})`)
+        .call(d3.axisBottom(x).tickFormat(d3.format(".0%"))).selectAll("text")
+        .style("font-size", "12px");
+
+      chart.append("g")
+        .call(d3.axisLeft(y).tickFormat(d3.format(".0%"))).selectAll("text")
+        .style("font-size", "12px");
+
+      chart.append("text")
+        .attr("x", width / 2).attr("y", height + 45)
+        .style("text-anchor", "middle")
+        .text("Pick Rate");
+
+      chart.append("text")
+        .attr("transform", "rotate(-90)")
+        .attr("y", -60).attr("x", -height / 2)
+        .style("text-anchor", "middle")
+        .text("Win Rate");
+    }
+
+    function drawScatter(data, x, y, avgPickRate, avgWinRate) {
+      chart.selectAll(".baseline").remove();
+
+      chart.append("line")
+        .attr("class", "baseline")
+        .attr("x1", 0).attr("x2", width)
+        .attr("y1", y(avgWinRate)).attr("y2", y(avgWinRate))
+        .attr("stroke", "red").attr("stroke-dasharray", "4");
+
+      chart.append("line")
+        .attr("class", "baseline")
+        .attr("x1", x(avgPickRate)).attr("x2", x(avgPickRate))
+        .attr("y1", 0).attr("y2", height)
+        .attr("stroke", "red").attr("stroke-dasharray", "4");
+
+      const circles = chart.selectAll("circle")
+        .data(data, d => d.Hero + d["Skill Tier"]);
+
+      circles.enter().append("circle")
+        .attr("r", 5)
+        .on("mouseover", (event, d) => {
+          tooltip.transition().duration(200).style("opacity", 0.9);
+          tooltip.html(`<b>${d.Hero}</b><br/>Pick Rate: ${(d["Pick Rate, %"]*100).toFixed(1)}%<br/>Win Rate: ${(d["Win Rate, %"]*100).toFixed(1)}%<br/>KDA: ${d["KDA Ratio"]}`)
+            .style("left", (event.pageX + 10) + "px")
+            .style("top", (event.pageY - 28) + "px");
+        })
+        .on("mouseout", () => tooltip.transition().duration(500).style("opacity", 0))
+        .merge(circles)
+        .transition().duration(500)
+        .attr("cx", d => x(d["Pick Rate, %"]))
+        .attr("cy", d => y(d["Win Rate, %"]))
+        .style("fill", d => (
+          d["Pick Rate, %"] >= avgPickRate && d["Win Rate, %"] >= avgWinRate
+        ) ? "red" : "steelblue");
+
+      circles.exit().remove();
+    }
+
+    function drawBarChart(data) {
+      const svg = d3.select("#barChart");
+      svg.selectAll("*").remove();
+
+      const margin = {top: 50, right: 60, bottom: 60, left: 80},
+        width = +svg.attr("width") - margin.left - margin.right,
+        height = +svg.attr("height") - margin.top - margin.bottom;
+
+      const group = svg.append("g").attr("transform", `translate(${margin.left},${margin.top})`);
+
+      const x = d3.scaleLinear().range([0, width]);
+      const y = d3.scaleBand().range([0, height]).padding(0.2);
+
+      const pickMean = d3.mean(data, d => d["Pick Rate, %"]);
+      const pickStd = d3.deviation(data, d => d["Pick Rate, %"]) || 1;
+      const winMean = d3.mean(data, d => d["Win Rate, %"]);
+      const winStd = d3.deviation(data, d => d["Win Rate, %"]) || 1;
+
+      let barData = data.map(d => {
+        const zPick = (d["Pick Rate, %"] - pickMean) / pickStd;
+        const zWin = (d["Win Rate, %"] - winMean) / winStd;
+        return { Hero: d.Hero, value: zPick + zWin };
+      });
+
+      const sortOrder = document.getElementById("sortSelect").value;
+      if (sortOrder === "ascending") {
+        barData.sort((a, b) => a.value - b.value);
+      } else if (sortOrder === "descending") {
+        barData.sort((a, b) => b.value - a.value);
+      }
+
+      x.domain(d3.extent(barData, d => d.value));
+      y.domain(barData.map(d => d.Hero));
+
+      group.append("g").call(d3.axisLeft(y)).selectAll("text")
+        .style("font-size", "12px");
+      group.append("g")
+        .attr("transform", `translate(0,${height})`)
+        .call(d3.axisBottom(x)).selectAll("text")
+        .style("font-size", "12px");
+
+      group.append("text")
+        .attr("x", width / 2).attr("y", height + 45)
+        .attr("text-anchor", "middle")
+        .text("OP 지수").attr("font-size", "14px");
+
+      group.selectAll("rect")
+        .data(barData)
+        .enter().append("rect")
+        .attr("y", d => y(d.Hero))
+        .attr("x", d => x(Math.min(0, d.value)))
+        .attr("width", d => Math.abs(x(d.value) - x(0)))
+        .attr("height", y.bandwidth())
+        .attr("fill", d => d.value >= 0 ? "orange" : "lightgray");
+
+      group.selectAll(".label")
+        .data(barData)
+        .enter().append("text")
+        .attr("x", d => d.value >= 0 ? x(0) + 5 : x(0) - 5)
+        .attr("y", d => y(d.Hero) + y.bandwidth() / 2 + 4)
+        .attr("text-anchor", d => d.value >= 0 ? "start" : "end")
+        .text(d => d.value.toFixed(2))
+        .attr("font-size", "10px");
+    }
+
+    d3.csv("ow2_season_01_FINAL_heroes_stats__2023-05-06.csv").then(data => {
+      data.forEach(d => {
+        d["Pick Rate, %"] = +d["Pick Rate, %"] / 100;
+        d["Win Rate, %"] = +d["Win Rate, %"] / 100;
+        d["KDA Ratio"] = +d["KDA Ratio"];
+      });
+
+      const x = d3.scaleLinear().domain([0, d3.max(data, d => d["Pick Rate, %"])]).range([0, width]);
+      const y = d3.scaleLinear().domain([0, d3.max(data, d => d["Win Rate, %"])]).range([height, 0]);
+      renderAxes(x, y);
+
+      function update() {
+        const tier = document.getElementById("tierSelect").value;
+        const role = document.getElementById("roleSelect").value;
+
+        let filtered = data;
+        filtered = filtered.filter(d => d["Skill Tier"] === tier);
+        if (role !== "All") filtered = filtered.filter(d => d["Role"] === role);
+
+        const avgPickRate = d3.mean(filtered, d => d["Pick Rate, %"]);
+        const avgWinRate = d3.mean(filtered, d => d["Win Rate, %"]);
+
+        drawScatter(filtered, x, y, avgPickRate, avgWinRate);
+        drawBarChart(filtered);
+      }
+
+      update();
+      document.getElementById("tierSelect").addEventListener("change", update);
+      document.getElementById("roleSelect").addEventListener("change", update);
+      document.getElementById("sortSelect").addEventListener("change", update);
+    });
+  </script>
+</body>
+</html>
